@@ -35,3 +35,12 @@ label.btn input[type=file]{display:none}
 .cat-row input[name=name]{flex:1;min-width:160px}
 .cat-row .cat-ic{width:44px;height:44px}
 @media(max-width:800px){body.admin{grid-template-columns:1fr}.aside{position:static;height:auto}.aside nav{flex-direction:row;flex-wrap:wrap}}
+.packs{display:grid;gap:10px}
+.pack-row{border:1.5px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:10px;background:#fcfcfb}
+.pack-row .fgrid{grid-template-columns:1fr 1fr}
+.pack-row .pack-sum{font-size:13px;font-weight:700;color:var(--green)}
+.pack-row .pack-sum.bad{color:var(--red)}
+.pack-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pack-head button{color:var(--red);font-weight:700;font-size:13px}
+.pack-colors{display:flex;flex-wrap:wrap;gap:6px 14px}
+.hint{font-size:12px;color:var(--muted);font-weight:500}

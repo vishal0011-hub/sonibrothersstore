@@ -1,4 +1,4 @@
-/* Sony Brothers — storefront styles */
+/* Soni Brothers — storefront styles */
 :root{
   --ink:#0b0b0b; --paper:#ffffff; --mist:#f3f3f1; --mist-2:#e9e9e6; --line:#e3e3df; --muted:#6b6b68;
   --volt:#d4ff3a; --volt-ink:#0b0b0b; --red:#d92d20; --green:#12805c; --amber:#b25e09;
@@ -392,3 +392,22 @@ a.ccard:hover{border-color:var(--ink)}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 .cart-page>*,.checkout>*,.order-grid>*,.acct>*,.pdp-grid>*,.co-steps{min-width:0}
+
+/* custom sets */
+.sets{display:grid;gap:8px}
+.set-card{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1.5px solid var(--line);border-radius:var(--r);padding:12px 12px 12px 14px;transition:border-color .15s,background .15s}
+.set-card.has{border-color:var(--ink);background:#fafafa}
+.set-info{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:13px}
+.set-info>b{font-size:15px}
+.set-info small{color:var(--muted)}
+.set-dots{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:2px}
+.set-dots i{width:12px;height:12px;border-radius:50%;border:1px solid rgba(0,0,0,.15)}
+.set-dots em{font-style:normal;font-size:11px;font-weight:700;color:var(--muted)}
+.set-buy{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex:none}
+.set-buy strong{font-size:17px;font-weight:800}
+.set-buy strong small{font-size:11px;font-weight:600;color:var(--muted);margin-left:2px}
+.set-buy>small{font-size:11px}
+.set-card .stepper{height:34px;background:var(--mist);border:0;margin-top:4px}
+.cline .amt small{display:block;font-size:11px;font-weight:600;color:var(--muted)}
+.q-picker .opt:first-child{margin-top:0}
+.cline .meta b{display:inline;font-size:inherit}

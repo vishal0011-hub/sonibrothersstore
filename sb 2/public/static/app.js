@@ -1,4 +1,4 @@
-/* Sony Brothers — storefront client */
+/* Soni Brothers — storefront client */
 (() => {
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -59,19 +59,26 @@
   const KEY = 'sb_cart_v1';
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
   const write = lines => { try { localStorage.setItem(KEY, JSON.stringify(lines)); } catch {} sync(); };
-  const pieces = lines => lines.reduce((a, l) => a + l.qty, 0);
-  const subtotal = lines => lines.reduce((a, l) => a + l.qty * l.price, 0);
-  function addLines(product, color, sizeQty) {
-    const lines = read(); let added = 0;
-    for (const [size, qty] of Object.entries(sizeQty)) {
-      if (!qty) continue;
-      const key = `${product.id}|${size}|${color.name}`;
+  // A line is either a single size (qty = pieces) or a set (qty = number of sets, setPieces pcs each)
+  const linePcs = l => l.qty * (l.setPieces || 1);
+  const lineAmt = l => l.qty * (l.setPrice || l.price);
+  const pieces = lines => lines.reduce((a, l) => a + linePcs(l), 0);
+  const subtotal = lines => lines.reduce((a, l) => a + lineAmt(l), 0);
+  const forServer = lines => lines.map(({ id, size, color, qty, pack }) => ({ id, size, color, qty, pack }));
+  function addLines(product, color, sizeQty, setQty = {}) {
+    const lines = read();
+    const push = (key, extra, qty) => {
       const ex = lines.find(l => l.key === key);
       if (ex) ex.qty = Math.min(999, ex.qty + qty);
-      else lines.push({ key, id: product.id, slug: product.slug, name: product.name, price: product.price, size, color: color.name, colorHex: color.hex, icon: product.icon, img: product.img, qty });
-      added += qty;
+      else lines.push({ key, id: product.id, slug: product.slug, name: product.name, price: product.price, icon: product.icon, img: product.img, qty, ...extra });
+    };
+    for (const [size, qty] of Object.entries(sizeQty)) if (qty) push(`${product.id}|${size}|${color.name}`, { size, color: color.name, colorHex: color.hex }, qty);
+    for (const [id, qty] of Object.entries(setQty)) {
+      const k = (product.packs || []).find(x => x.id === id); if (!qty || !k) continue;
+      const c = k.colors ? { name: k.colors.length === product.colors.length && k.colors.length > 1 ? `Assorted · all ${k.colors.length} colours` : k.colors.join(', '), hex: product.colors[0]?.hex } : color;
+      push(`${product.id}|pack:${id}|${c.name}`, { pack: id, packName: k.name, size: k.label, setPieces: k.pieces, setPrice: k.setPrice, price: k.unit, color: k.colors ? c.name : color.name, colorHex: k.colors ? c.hex : color.hex }, qty);
     }
-    write(lines); return added;
+    write(lines);
   }
   function moqHTML(n) {
     const left = MOQ - n;
@@ -82,10 +89,10 @@
   }
   const lineHTML = l => `<div class="cline" data-key="${esc(l.key)}">
     <a href="/p/${esc(l.slug)}" class="cline-img">${thumb(l)}</a>
-    <div><b>${esc(l.name)}</b><div class="meta">${esc(l.color)} · Size ${esc(l.size)} · ${inr(l.price)}/pc</div>
+    <div><b>${esc(l.name)}</b><div class="meta">${l.pack ? `<b>${esc(l.packName)}</b> · ${esc(l.size)} · ${esc(l.color)}<br>${l.setPieces} pcs/set · ${inr(l.setPrice)}/set${l.qty > 1 ? ` · <b>${linePcs(l)} pcs</b>` : ''}` : `${esc(l.color)} · Size ${esc(l.size)} · ${inr(l.price)}/pc`}</div>
       <div class="stepper"><button data-q="-1" aria-label="Decrease">−</button><input type="number" value="${l.qty}" min="0" max="999" data-qin aria-label="Quantity"><button data-q="1" aria-label="Increase">+</button></div>
       <button class="rm" data-rm>Remove</button></div>
-    <div class="amt">${inr(l.qty * l.price)}</div></div>`;
+    <div class="amt">${inr(lineAmt(l))}${l.pack ? `<small>${l.qty} set${l.qty > 1 ? 's' : ''}</small>` : ''}</div></div>`;
   function renderCart() {
     const lines = read(); const n = pieces(lines);
     const body = $('#cart-lines');
@@ -115,15 +122,21 @@
     if (l) { l.qty = Math.max(0, Math.min(999, Math.floor(+e.target.value) || 0)); write(lines.filter(x => x.qty > 0)); }
   });
 
-  // ---------- size/qty picker (PDP + quick add share it) ----------
-  function wirePicker(root, product) {
+  // ---------- picker: colour + sets + single sizes (product page and quick-add share it) ----------
+  function wirePicker(root) {
+    const product = JSON.parse(root.dataset.product);
     let colorIdx = 0;
+    const clamp = i => { const v = Math.max(0, Math.min(999, Math.floor(+i.value) || 0)); i.value = v; return v; };
     const total = () => {
-      const q = {}; $$('input[data-size]', root).forEach(i => { const v = Math.max(0, Math.min(999, Math.floor(+i.value) || 0)); i.value = v; q[i.dataset.size] = v; i.closest('.sq').classList.toggle('has', v > 0); });
-      const n = Object.values(q).reduce((a, b) => a + b, 0);
+      const q = {}, sq = {}; let n = 0, amt = 0;
+      $$('input[data-size]', root).forEach(i => { const v = clamp(i); q[i.dataset.size] = v; n += v; amt += v * product.price; i.closest('.sq').classList.toggle('has', v > 0); });
+      $$('input[data-set]', root).forEach(i => {
+        const v = clamp(i); const k = product.packs.find(x => x.id === i.dataset.set); sq[i.dataset.set] = v;
+        n += v * k.pieces; amt += v * k.setPrice; i.closest('.set-card').classList.toggle('has', v > 0);
+      });
       $('[data-pdp-count]', root).textContent = `${n} piece${n === 1 ? '' : 's'}`;
-      $('[data-pdp-total]', root).textContent = inr(n * product.price);
-      return { q, n };
+      $('[data-pdp-total]', root).textContent = inr(amt);
+      return { q, sq, n };
     };
     root.addEventListener('click', e => {
       const st = e.target.closest('[data-step]');
@@ -135,39 +148,39 @@
         $('[data-color-name]', root).textContent = product.colors[colorIdx].name;
         const g = $('[data-gallery]'); const slide = g && $(`.g-slide[data-i="${colorIdx}"]`, g);
         if (slide && root.closest('.pdp')) slide.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-        const qimg = $('.qa-top .qimg', root); if (qimg && !product.img) qimg.innerHTML = art(product.icon, product.colors[colorIdx].hex);
+        const qimg = $('.qa-top .qimg', root.parentElement); if (qimg && !product.img) qimg.innerHTML = art(product.icon, product.colors[colorIdx].hex);
       }
-      const add = e.target.closest('[data-add-pdp]');
-      if (add) {
-        const { q, n } = total();
-        if (!n) return toast('Choose at least 1 piece in any size', true);
-        addLines(product, product.colors[colorIdx] || { name: '-', hex: '#222' }, q);
-        $$('input[data-size]', root).forEach(i => (i.value = 0)); total();
+      if (e.target.closest('[data-add-pdp]')) {
+        const { q, sq, n } = total();
+        if (!n) return toast(product.packs.length ? 'Choose how many sets you want' : 'Choose at least 1 piece in any size', true);
+        addLines(product, product.colors[colorIdx] || { name: '-', hex: '#222' }, q, sq);
+        $$('input[data-size],input[data-set]', root).forEach(i => (i.value = 0)); total();
         const inCart = pieces(read());
         toast(inCart >= MOQ ? `Added ${n} pcs · Bag ready for checkout` : `Added ${n} pcs · ${MOQ - inCart} more to reach MOQ`);
         if (root.closest('#quick')) closeAll();
         open('cart');
       }
     });
-    root.addEventListener('input', e => e.target.matches('input[data-size]') && total());
+    root.addEventListener('input', e => e.target.matches('input[data-size],input[data-set]') && total());
     total();
   }
-  const pdp = $('.pdp-info[data-product]');
-  if (pdp) wirePicker(pdp, JSON.parse(pdp.dataset.product));
+  const pdpPicker = $('.pdp-info .picker');
+  if (pdpPicker) wirePicker(pdpPicker);
 
-  document.addEventListener('click', e => {
+  document.addEventListener('click', async e => {
     const b = e.target.closest('[data-quick]'); if (!b) return;
     e.preventDefault();
     const p = JSON.parse(b.dataset.quick);
-    const box = $('#quick-body');
+    const old = $('#quick-body'); const box = old.cloneNode(false); old.replaceWith(box);   // fresh node, no old listeners
     box.innerHTML = `<button class="icon-btn modal-x" data-close aria-label="Close">✕</button>
       <div class="qa-top"><div class="qimg">${p.img ? `<img src="${esc(p.img)}" alt="">` : art(p.icon, p.colors[0]?.hex)}</div><div><h3>${esc(p.name)}</h3><div class="price"><strong>${inr(p.price)}</strong><span class="per">/pc</span></div><a class="link small" href="/p/${esc(p.slug)}">View details</a></div></div>
-      <div class="opt" style="margin-top:0"><div class="opt-head"><span>Colour: <b data-color-name>${esc(p.colors[0]?.name || '')}</b></span></div><div class="swatches">${p.colors.map((c, i) => `<button type="button" class="sw ${i ? '' : 'on'}" data-color="${i}" style="--c:${esc(c.hex)}" aria-label="${esc(c.name)}"></button>`).join('')}</div></div>
-      <div class="opt"><div class="opt-head"><span>Size &amp; quantity</span><a href="/size-guide" class="link small">Size guide</a></div><div class="size-qty">${p.sizes.map(z => `<label class="sq"><span>${esc(z)}</span><div class="stepper"><button type="button" data-step="-1">−</button><input type="number" min="0" value="0" data-size="${esc(z)}" aria-label="Quantity ${esc(z)}"><button type="button" data-step="1">+</button></div></label>`).join('')}</div><button type="button" class="link small" data-set-pack>+ Add 1 of every size</button></div>
-      <div class="pdp-total"><span data-pdp-count>0 pieces</span><strong data-pdp-total>₹0</strong></div>
-      <button class="btn btn-lg btn-block" data-add-pdp>Add to bag</button>`;
-    const fresh = box.cloneNode(true); box.replaceWith(fresh);   // drop old listeners
-    open('quick'); wirePicker(fresh, p);
+      <div class="q-picker"><p class="muted small">Loading…</p></div>`;
+    open('quick');
+    try {
+      const r = await fetch(`/picker/${p.id}`); if (!r.ok) throw new Error();
+      $('.q-picker', box).innerHTML = await r.text();
+      wirePicker($('.q-picker .picker', box));
+    } catch { location.href = `/p/${p.slug}`; }
   });
 
   // ---------- pin code ----------
@@ -235,10 +248,10 @@
     if (!co) return;
     const lines = read(); const sum = $('#co-summary');
     if (!lines.length) { $('#co-lines').innerHTML = '<div class="empty"><p>Your bag is empty.</p><a class="btn" href="/shop">Shop now</a></div>'; $('.sum-rows', sum).innerHTML = ''; $('#place-btn').disabled = true; return; }
-    $('#co-lines').innerHTML = `<div class="co-lines">${lines.map(l => `<div class="cline"><div class="cline-img">${thumb(l)}</div><div><b>${esc(l.name)}</b><div class="meta">${esc(l.color)} · ${esc(l.size)} · ×${l.qty}</div></div><div class="amt">${inr(l.qty * l.price)}</div></div>`).join('')}</div><a class="link small" href="/cart">Edit bag</a>`;
+    $('#co-lines').innerHTML = `<div class="co-lines">${lines.map(l => `<div class="cline"><div class="cline-img">${thumb(l)}</div><div><b>${esc(l.name)}</b><div class="meta">${l.pack ? `${esc(l.packName)} · ${esc(l.color)} · ${l.qty} set${l.qty > 1 ? 's' : ''} (${linePcs(l)} pcs)` : `${esc(l.color)} · ${esc(l.size)} · ×${l.qty}`}</div></div><div class="amt">${inr(lineAmt(l))}</div></div>`).join('')}</div><a class="link small" href="/cart">Edit bag</a>`;
     const form = $('#co-form');
     try {
-      const q = await api('/api/cart/quote', { lines: lines.map(({ id, size, color, qty }) => ({ id, size, color, qty })), state: form?.state?.value });
+      const q = await api('/api/cart/quote', { lines: forServer(lines), state: form?.state?.value });
       lastQuote = q;
       const cod = form?.method?.value === 'cod';
       $('#pay-pre').textContent = inr(q.total);
@@ -281,7 +294,7 @@
       const btn = $('#place-btn'); btn.disabled = true; const label = btn.textContent; btn.textContent = 'Processing…';
       try {
         const d = await api('/api/orders', {
-          lines: lines.map(({ id, size, color, qty }) => ({ id, size, color, qty })), method: fd.method, gstin: fd.gstin,
+          lines: forServer(lines), method: fd.method, gstin: fd.gstin,
           address_id: addrId, address: { name: fd.name, phone: fd.phone, business: fd.business, line1: fd.line1, line2: fd.line2, city: fd.city, state: fd.state, pincode: fd.pincode },
         });
         if (d.demo) {
