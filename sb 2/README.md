@@ -1,4 +1,4 @@
-# Sony Brothers — Wholesale Store (website + installable app)
+# Soni Brothers — Wholesale Store (website + installable app)
 
 Zero-dependency Node.js store. No `npm install` needed. Requires **Node.js 22.13 or newer**.
 

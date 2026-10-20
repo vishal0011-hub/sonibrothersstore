@@ -1,4 +1,4 @@
-// Sony Brothers — database (built-in SQLite, no external packages)
+// Soni Brothers — database (built-in SQLite, no external packages)
 const path = require('path');
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
@@ -42,11 +42,17 @@ CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY, name TEXT, phone TEXT, message TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 `);
 
+// ---------- upgrades for existing live databases (safe to run every start) ----------
+for (const sql of [
+  "ALTER TABLE products ADD COLUMN packs TEXT DEFAULT '[]'",      // custom sets, see lib.normalizePacks
+  'ALTER TABLE products ADD COLUMN sell_single INTEGER DEFAULT 1', // allow buying single sizes too
+]) { try { db.exec(sql); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; } }
+
 // ---------- settings ----------
 const DEFAULT_SETTINGS = {
-  brand_name: 'Sony Brothers',
+  brand_name: 'Soni Brothers',
   tagline: 'Streetwear. Wholesale. Direct from the manufacturer.',
-  legal_name: 'Sony Brothers',            // registered business name as on GST certificate
+  legal_name: 'Soni Enterprises',           // registered business name as on GST certificate
   gstin: '',                              // e.g. 27ABCDE1234F1Z5
   address: 'Add your registered business address',
   city: 'Mumbai', state: 'Maharashtra', pincode: '400001',
@@ -136,10 +142,17 @@ function seed() {
   for (const p of P) {
     pi.run(p[0], p[1], catId(p[2]), p[3], p[4], JSON.stringify(p[5].map(k => C[k])), JSON.stringify(p[6]), p[7], p[8], p[9][0], p[9][1], p[9][2], p[10]);
   }
+  // sample sets so the demo shows how sets work (edit them in Admin → Products)
+  const setPacks = db.prepare('UPDATE products SET packs = ? WHERE slug = ?');
+  const tops = [{ id: 'set3mlxl', name: 'Size set', sizes: { M: 1, L: 1, XL: 1 }, colorMode: 'each', colors: [], price: null },
+    { id: 'set5full', name: 'Full size set', sizes: { S: 1, M: 1, L: 1, XL: 1, XXL: 1 }, colorMode: 'each', colors: [], price: null }];
+  for (const slug of ['drop-shoulder-heavyweight-tee', 'acid-wash-oversized-tee', 'essential-crew-tee', 'heavy-fleece-hoodie']) setPacks.run(JSON.stringify(tops), slug);
+  setPacks.run(JSON.stringify([tops[0], { id: 'boxall01', name: 'Colour box', sizes: { M: 1, L: 1, XL: 1 }, colorMode: 'all', colors: [], price: null }]), 'cuban-collar-resort-shirt');
+  setPacks.run(JSON.stringify([{ id: 'jean2836', name: 'Size set 28–36', sizes: { 28: 1, 30: 1, 32: 1, 34: 1, 36: 1 }, colorMode: 'each', colors: [], price: null }]), 'baggy-wide-leg-jeans');
 }
 seed();
 
-const parseProduct = p => p && ({ ...p, colors: JSON.parse(p.colors || '[]'), sizes: JSON.parse(p.sizes || '[]'), images: JSON.parse(p.images || '[]') });
+const parseProduct = p => p && ({ ...p, colors: JSON.parse(p.colors || '[]'), sizes: JSON.parse(p.sizes || '[]'), images: JSON.parse(p.images || '[]'), packs: JSON.parse(p.packs || '[]'), sell_single: p.sell_single ?? 1 });
 const parseOrder = o => o && ({ ...o, items: JSON.parse(o.items || '[]'), tax: JSON.parse(o.tax || '{}'), address: JSON.parse(o.address || '{}'), history: JSON.parse(o.history || '[]') });
 
 module.exports = { db, DATA_DIR, getSettings, setSetting, parseProduct, parseOrder };

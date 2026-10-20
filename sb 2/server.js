@@ -1,4 +1,4 @@
-// Sony Brothers — wholesale store server. Zero dependencies: needs Node.js 22.13+ (built-in SQLite).
+// Soni Brothers — wholesale store server. Zero dependencies: needs Node.js 22.13+ (built-in SQLite).
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -147,12 +147,38 @@ function priceCart(lines, s) {
     if (!p) throw new HttpError(400, 'A product in your bag is no longer available. Please remove it.');
     const qty = Math.floor(+l.qty);
     if (!(qty >= 1 && qty <= 999)) throw new HttpError(400, 'Invalid quantity.');
+    const icon = iconOf(p);
+    const hsn = /jean|cargo|jogger|short/.test(icon) ? '6203' : /shirt|jacket/.test(icon) ? '6205' : '6109';
+    const base = { id: p.id, slug: p.slug, name: p.name, icon, hsn, stock: p.stock };
+    if (l.pack) {
+      // ----- a set: qty = number of sets; stored qty becomes total pieces -----
+      const pk = p.packs.find(x => x.id === l.pack);
+      if (!pk) throw new HttpError(400, `A set of ${p.name} in your bag has changed. Please remove it and add again.`);
+      const info = L.packInfo(pk, p);
+      if (!info.pieces) throw new HttpError(400, `Set ${pk.name} of ${p.name} is not available.`);
+      let color, colorHex, img = p.images[0] || '';
+      if (info.colors) { color = info.colors.length === p.colors.length && info.colors.length > 1 ? `Assorted · all ${info.colors.length} colours` : info.colors.map(c => c.name).join(', '); colorHex = info.colors[0]?.hex || '#222'; }
+      else {
+        const c = p.colors.find(x => x.name === l.color);
+        if (!c) throw new HttpError(400, `Please choose a colour for ${p.name}.`);
+        color = c.name; colorHex = c.hex; img = p.images[p.colors.indexOf(c)] || img;
+      }
+      const key = `${p.id}|pack:${pk.id}|${color}`;
+      const cur = merged.get(key);
+      if (cur) { cur.sets += qty; cur.qty = cur.sets * info.pieces; continue; }
+      merged.set(key, { ...base, pack: pk.id, packName: info.name, sets: qty, setPieces: info.pieces, qty: qty * info.pieces, price: info.unit,
+        size: `Set: ${info.sizesLabel}`, color, colorHex, img,
+        breakdown: `${info.sizes.map(([z, n]) => `${z}×${n}`).join(', ')}${info.colors ? ` in each of: ${info.colors.map(c => c.name).join(', ')}` : ` in ${color}`}` });
+      continue;
+    }
+    // ----- a single size -----
+    if (!p.sell_single && p.packs.length) throw new HttpError(400, `${p.name} is sold in sets only. Please remove it and add a set.`);
     if (!p.sizes.includes(l.size)) throw new HttpError(400, `Size ${l.size} not available for ${p.name}.`);
     const color = p.colors.find(c => c.name === l.color) || p.colors[0] || { name: '-', hex: '#222' };
     const key = `${p.id}|${l.size}|${color.name}`;
     const cur = merged.get(key);
     if (cur) cur.qty += qty;
-    else merged.set(key, { id: p.id, slug: p.slug, name: p.name, price: p.price, size: l.size, color: color.name, colorHex: color.hex, icon: iconOf(p), img: p.images[p.colors.indexOf(color)] || p.images[0] || '', qty, hsn: /jean|cargo|jogger|short/.test(iconOf(p)) ? '6203' : /shirt|jacket/.test(iconOf(p)) ? '6205' : '6109', stock: p.stock });
+    else merged.set(key, { ...base, price: p.price, size: l.size, color: color.name, colorHex: color.hex, img: p.images[p.colors.indexOf(color)] || p.images[0] || '', qty });
   }
   const items = [...merged.values()];
   const byProduct = {};
@@ -233,6 +259,11 @@ route('GET', '/p/:slug', (req, res, { params }) => {
   page(req, res, { title: p.name, desc: `${p.name} — wholesale ${L.inr(p.price)}/piece. ${p.fabric}, ${p.fit} fit. MOQ ${getSettings().moq} pcs, COD available.`, canonical: `/p/${p.slug}`, ogImage: p.images[0] ? base + p.images[0] : '',
     body: V.product(getSettings(), { p, cat, related: [...related, ...more], iconOf: iconMap() }),
     jsonld: { '@context': 'https://schema.org', '@type': 'Product', name: p.name, description: p.description, image: p.images.map(i => base + i), brand: { '@type': 'Brand', name: getSettings().brand_name }, category: cat.name, offers: { '@type': 'Offer', priceCurrency: 'INR', price: p.price, availability: p.stock > 0 ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock', url: base + '/p/' + p.slug } } });
+});
+route('GET', '/picker/:id', (req, res, { params }) => {   // quick-add popup content
+  const p = parseProduct(db.prepare('SELECT * FROM products WHERE id = ? AND active = 1').get(+params.id));
+  if (!p) throw new HttpError(404, 'Not found');
+  send(req, res, 200, V.picker(getSettings(), p, iconMap()(p)), 'text/html; charset=utf-8', { 'Cache-Control': 'no-cache' });
 });
 route('GET', '/cart', (req, res) => page(req, res, { page: 'cart', title: 'Your bag', noindex: true, body: V.cartPage(getSettings()) }));
 route('GET', '/checkout', (req, res) => {
@@ -481,9 +512,10 @@ function saveProduct(body, id) {
   const sizes = arr(body.sizes); if (!sizes.length) throw new HttpError(400, 'Pick at least one size');
   let slug = L.slugify(body.slug || name);
   if (db.prepare('SELECT 1 FROM products WHERE slug = ? AND id != ?').get(slug, id || 0)) slug += '-' + crypto.randomInt(100, 999);
-  const vals = [slug, name, +body.category_id, String(body.description || ''), String(body.fabric || ''), String(body.fit || ''), price, Math.round(+body.mrp || 0), JSON.stringify(colors.length ? colors : [{ name: 'Default', hex: '#222222' }]), JSON.stringify(sizes), JSON.stringify(arr(body.images).filter(i => /^\/uploads\/[\w.-]+$/.test(i))), Math.max(0, Math.round(+body.stock || 0)), body.featured ? 1 : 0, body.is_new ? 1 : 0, body.bestseller ? 1 : 0, body.active ? 1 : 0];
-  if (id) db.prepare('UPDATE products SET slug=?, name=?, category_id=?, description=?, fabric=?, fit=?, price=?, mrp=?, colors=?, sizes=?, images=?, stock=?, featured=?, is_new=?, bestseller=?, active=? WHERE id = ?').run(...vals, id);
-  else db.prepare('INSERT INTO products (slug, name, category_id, description, fabric, fit, price, mrp, colors, sizes, images, stock, featured, is_new, bestseller, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals);
+  const vals = [slug, name, +body.category_id, String(body.description || ''), String(body.fabric || ''), String(body.fit || ''), price, Math.round(+body.mrp || 0), JSON.stringify(colors.length ? colors : [{ name: 'Default', hex: '#222222' }]), JSON.stringify(sizes), JSON.stringify(arr(body.images).filter(i => /^\/uploads\/[\w.-]+$/.test(i))), Math.max(0, Math.round(+body.stock || 0)), body.featured ? 1 : 0, body.is_new ? 1 : 0, body.bestseller ? 1 : 0, body.active ? 1 : 0,
+    JSON.stringify(L.normalizePacks(body.packs, sizes, colors.length ? colors : [{ name: 'Default', hex: '#222222' }])), body.sell_single ? 1 : 0];
+  if (id) db.prepare('UPDATE products SET slug=?, name=?, category_id=?, description=?, fabric=?, fit=?, price=?, mrp=?, colors=?, sizes=?, images=?, stock=?, featured=?, is_new=?, bestseller=?, active=?, packs=?, sell_single=? WHERE id = ?').run(...vals, id);
+  else db.prepare('INSERT INTO products (slug, name, category_id, description, fabric, fit, price, mrp, colors, sizes, images, stock, featured, is_new, bestseller, active, packs, sell_single) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(...vals);
 }
 route('POST', '/admin/api/products', (req, res, { body }) => { adminOnly(req); saveProduct(body); json(req, res, { ok: true }); });
 route('POST', '/admin/api/products/:id', (req, res, { params, body }) => { adminOnly(req); saveProduct(body, +params.id); json(req, res, { ok: true }); });
@@ -527,7 +559,12 @@ function serveFile(req, res, file, cache) {
 }
 function staticRoute(req, res, pathname) {
   if (pathname === '/sw.js') return serveFile(req, res, path.join(PUBLIC, 'sw.js'), 'no-cache'), true;
-  if (pathname === '/manifest.webmanifest') return serveFile(req, res, path.join(PUBLIC, 'manifest.webmanifest'), 'public, max-age=86400'), true;
+  if (pathname === '/manifest.webmanifest') {
+    const s = getSettings();
+    const m = JSON.parse(fs.readFileSync(path.join(PUBLIC, 'manifest.webmanifest'), 'utf8'));
+    Object.assign(m, { name: `${s.brand_name} — Wholesale Streetwear`, short_name: s.brand_name, description: `Factory-direct wholesale streetwear. MOQ ${s.moq} pieces, COD available, pan-India delivery.` });
+    send(req, res, 200, JSON.stringify(m), 'application/manifest+json', { 'Cache-Control': 'public, max-age=3600' }); return true;
+  }
   if (pathname === '/favicon.ico') return serveFile(req, res, path.join(PUBLIC, 'icons', 'icon-192.png'), 'public, max-age=604800'), true;
   for (const [prefix, dir, cache] of [['/static/', path.join(PUBLIC, 'static'), 'public, max-age=604800'], ['/icons/', path.join(PUBLIC, 'icons'), 'public, max-age=604800'], ['/uploads/', UPLOADS, 'public, max-age=31536000, immutable']]) {
     if (pathname.startsWith(prefix)) {
@@ -571,7 +608,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 server.listen(PORT, () => {
-  console.log(`Sony Brothers store running on http://localhost:${PORT}`);
+  console.log(`Soni Brothers store running on http://localhost:${PORT}`);
   if (DEMO_PAY) console.log('⚠ TEST MODE: Razorpay keys not set — payments are simulated.');
   if (!otpProviderReady()) console.log('⚠ No SMS provider — OTP codes are printed here and shown on screen (test mode only).');
   if (!PROD && !process.env.ADMIN_PASSWORD) console.log('⚠ Admin password is "admin123" in test mode. Set ADMIN_PASSWORD before going live.');

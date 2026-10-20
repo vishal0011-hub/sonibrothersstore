@@ -117,10 +117,65 @@ async function sendOrderSms(phone10, vars) {
   } catch (e) { console.error('Order SMS failed', e.message); }
 }
 
+// ---------- Custom sets (packs) ----------
+// A product can have any number of sets, defined in Admin → Products:
+//   { id, name, sizes: { M: 1, L: 1, XL: 1 }, colorMode: 'each' | 'all' | 'list', colors: [names], price: per-piece override or null }
+//   'each' → customer picks ONE colour; a set = the sizes in that colour        (e.g. M+L+XL = 3 pcs)
+//   'all'  → a set contains EVERY colour of the product × the sizes             (e.g. 12 colours × M,L,XL = 36 pcs)
+//   'list' → a set contains only the chosen colours × the sizes
+const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '4XL', 'FREE'];
+const sizeRank = z => { const i = SIZE_ORDER.indexOf(String(z).toUpperCase()); return i >= 0 ? i : 100 + (parseFloat(z) || 0); };
+
+function packColors(pack, product) {
+  if (pack.colorMode === 'all') return product.colors;
+  if (pack.colorMode === 'list') return product.colors.filter(c => (pack.colors || []).includes(c.name));
+  return null; // 'each' — customer chooses
+}
+function packInfo(pack, product) {
+  const sizes = Object.entries(pack.sizes || {}).filter(([z, n]) => product.sizes.includes(z) && n > 0).sort((a, b) => sizeRank(a[0]) - sizeRank(b[0]));
+  const perColour = sizes.reduce((a, [, n]) => a + n, 0);
+  const cols = packColors(pack, product);
+  const pieces = perColour * (cols ? cols.length : 1);
+  const unit = pack.price > 0 ? pack.price : product.price;
+  const sizesLabel = sizes.map(([z, n]) => (n > 1 ? `${n}×${z}` : z)).join(' · ');
+  return { id: pack.id, name: pack.name, sizes, sizesLabel, colorMode: pack.colorMode, colors: cols, perColour, pieces, unit, setPrice: unit * pieces };
+}
+// Parse + validate what the admin typed. sizesText like "M, L, XL" or "M:2, L:2, XL:1"
+function normalizePacks(raw, sizes, colors) {
+  let list = raw;
+  if (typeof list === 'string') { try { list = JSON.parse(list || '[]'); } catch { list = []; } }
+  if (!Array.isArray(list)) return [];
+  const colorNames = colors.map(c => c.name);
+  return list.slice(0, 20).map(pk => {
+    const map = {};
+    const text = typeof pk.sizes === 'string' ? pk.sizes : Object.entries(pk.sizes || {}).map(([z, n]) => `${z}:${n}`).join(',');
+    for (const part of text.split(/[,;]+/).map(x => x.trim()).filter(Boolean)) {
+      const m = part.match(/^(.+?)\s*[:×*]\s*(\d+)$/);            // "M:2", "M×2", "M*2" — never split on the X in XL
+      const [z0, n0] = m ? [m[1].trim(), m[2]] : [part, undefined];
+      const z = sizes.find(sz => sz.toUpperCase() === String(z0).toUpperCase());
+      if (!z) throw Object.assign(new Error(`Set "${pk.name || ''}": size "${z0}" is not one of this product's sizes (${sizes.join(', ')}).`), { status: 400 });
+      const n = n0 === undefined || n0 === '' ? 1 : Math.floor(+n0);
+      if (!(n >= 1 && n <= 99)) throw Object.assign(new Error(`Set "${pk.name || ''}": quantity for ${z} must be 1–99.`), { status: 400 });
+      map[z] = (map[z] || 0) + n;
+    }
+    if (!Object.keys(map).length) throw Object.assign(new Error('Every set needs at least one size.'), { status: 400 });
+    const mode = ['each', 'all', 'list'].includes(pk.colorMode) ? pk.colorMode : 'each';
+    const pickedColors = (Array.isArray(pk.colors) ? pk.colors : String(pk.colors || '').split(',')).map(x => x.trim()).filter(x => colorNames.includes(x));
+    if (mode === 'list' && !pickedColors.length) throw Object.assign(new Error(`Set "${pk.name || ''}": choose which colours are in the set.`), { status: 400 });
+    const total = Object.values(map).reduce((a, b) => a + b, 0);
+    return {
+      id: /^[a-z0-9]{4,12}$/.test(pk.id || '') ? pk.id : crypto.randomBytes(4).toString('hex'),
+      name: String(pk.name || '').trim().slice(0, 40) || (mode === 'each' ? `Set of ${total}` : 'Assorted set'),
+      sizes: map, colorMode: mode, colors: mode === 'list' ? pickedColors : [],
+      price: Math.round(+pk.price) > 0 ? Math.round(+pk.price) : null,
+    };
+  });
+}
+
 const INDIAN_STATES = ['Andaman and Nicobar Islands', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chandigarh', 'Chhattisgarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jammu and Kashmir', 'Jharkhand', 'Karnataka', 'Kerala', 'Ladakh', 'Lakshadweep', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Puducherry', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal'];
 
 module.exports = {
   esc, inr, slugify, garmentIcon, garmentArt, computeTax,
   RP_KEY, razorpayEnabled, razorpayCreateOrder, verifyPaymentSignature, verifyWebhookSignature,
-  smsEnabled, sendOtpSms, sendOrderSms, INDIAN_STATES,
+  smsEnabled, sendOtpSms, sendOrderSms, INDIAN_STATES, packInfo, normalizePacks, sizeRank,
 };
