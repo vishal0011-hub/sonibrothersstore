@@ -1,0 +1,9 @@
+{
+  "name": "sony-brothers-store",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sony Brothers wholesale streetwear store",
+  "main": "server.js",
+  "engines": { "node": ">=22.13" },
+  "scripts": { "start": "node --no-warnings server.js" }
+}

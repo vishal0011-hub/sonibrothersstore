@@ -1,0 +1,21 @@
+{
+  "name": "Soni Brothers — Wholesale Streetwear",
+  "short_name": "Soni Brothers",
+  "description": "Factory-direct wholesale streetwear. MOQ 4 pieces, COD available, pan-India delivery.",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#0b0b0b",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "New arrivals", "url": "/shop?sort=new" },
+    { "name": "My orders", "url": "/account" }
+  ]
+}
