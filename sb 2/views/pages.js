@@ -30,7 +30,7 @@ const pages = {
   contact: s => `<section class="wrap page-head"><p class="eyebrow">Contact</p><h1 class="display">We're here to help.</h1><p class="muted">Monday–Saturday, 10 am – 7 pm IST. Fastest on WhatsApp.</p></section>
   <section class="wrap contact-grid">
     <div class="contact-cards">
-      <a class="ccard" href="${waLink(s, 'Hi Sony Brothers!')}" target="_blank" rel="noopener">${ICON.wa}<b>WhatsApp</b><span>Chat with our team</span></a>
+      <a class="ccard" href="${waLink(s, `Hi ${s.brand_name}!`)}" target="_blank" rel="noopener">${ICON.wa}<b>WhatsApp</b><span>Chat with our team</span></a>
       <a class="ccard" href="tel:${esc(s.phone.replace(/\s/g, ''))}">${ICON.user}<b>Call</b><span>${esc(s.phone)}</span></a>
       <a class="ccard" href="mailto:${esc(s.email)}">${ICON.bag}<b>Email</b><span>${esc(s.email)}</span></a>
       <div class="ccard">${ICON.pin}<b>Registered office</b><span>${esc(s.legal_name)}<br>${esc(s.address)}, ${esc(s.city)}, ${esc(s.state)} – ${esc(s.pincode)}</span></div>

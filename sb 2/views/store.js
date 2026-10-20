@@ -1,4 +1,4 @@
-const { esc, inr, garmentIcon, garmentArt, INDIAN_STATES } = require('../lib');
+const { esc, inr, garmentIcon, garmentArt, INDIAN_STATES, packInfo } = require('../lib');
 const { ICON, waLink } = require('./layout');
 
 const pct = p => p.mrp > p.price ? Math.round((1 - p.price / p.mrp) * 100) : 0;
@@ -12,9 +12,35 @@ function productImg(p, icon, i = 0, cls = '') {
 }
 
 // Data the client needs for quick-add (kept small)
+const packsOf = p => (p.packs || []).map(pk => packInfo(pk, p)).filter(x => x.pieces > 0);
 const cardData = (p, icon) => esc(JSON.stringify({
   id: p.id, slug: p.slug, name: p.name, price: p.price, mrp: p.mrp, sizes: p.sizes, colors: p.colors, icon, img: p.images[0] || '',
+  single: p.sell_single || !packsOf(p).length ? 1 : 0,
+  packs: packsOf(p).map(k => ({ id: k.id, name: k.name, label: k.sizesLabel, pieces: k.pieces, setPrice: k.setPrice, unit: k.unit, mode: k.colorMode, colors: k.colors ? k.colors.map(c => c.name) : null })),
 }));
+
+// Colour + sets + single sizes + total. Used on the product page and (via /picker/:id) in quick-add.
+function picker(s, p, icon) {
+  const packs = packsOf(p);
+  const single = p.sell_single || !packs.length;
+  const needsColour = single || packs.some(k => !k.colors);
+  const steps = (attr, label) => `<div class="stepper"><button type="button" data-step="-1" aria-label="Less ${label}">−</button><input type="number" min="0" max="999" value="0" ${attr} aria-label="Quantity ${label}"><button type="button" data-step="1" aria-label="More ${label}">+</button></div>`;
+  return `<div class="picker" data-product="${cardData(p, icon)}">
+    ${needsColour ? `<div class="opt"><div class="opt-head"><span>Colour: <b data-color-name>${esc(p.colors[0]?.name || '')}</b></span></div>
+      <div class="swatches">${p.colors.map((c, i) => `<button type="button" class="sw ${i === 0 ? 'on' : ''}" data-color="${i}" style="--c:${esc(c.hex)}" aria-label="${esc(c.name)}" title="${esc(c.name)}"></button>`).join('')}</div></div>` : ''}
+    ${packs.length ? `<div class="opt"><div class="opt-head"><span>Buy in sets</span><a href="/size-guide" class="link small">Size guide</a></div>
+      <div class="sets">${packs.map(k => `<div class="set-card" data-pack="${esc(k.id)}">
+        <div class="set-info"><b>${esc(k.name)}</b><span>${esc(k.sizesLabel)}${k.colors ? ` × ${k.colors.length} colour${k.colors.length > 1 ? 's' : ''}` : ''} = <b>${k.pieces} pcs</b></span>
+          ${k.colors ? `<span class="set-dots">${k.colors.slice(0, 14).map(c => `<i style="background:${esc(c.hex)}" title="${esc(c.name)}"></i>`).join('')}${k.colors.length > 14 ? `<em>+${k.colors.length - 14}</em>` : ''}</span>` : '<small>In your selected colour</small>'}</div>
+        <div class="set-buy"><strong>${inr(k.setPrice)}<small>/set</small></strong><small class="muted">${inr(k.unit)}/pc</small>${steps(`data-set="${esc(k.id)}"`, esc(k.name))}</div>
+      </div>`).join('')}</div></div>` : ''}
+    ${single ? `<div class="opt"><div class="opt-head"><span>${packs.length ? 'Or single sizes' : 'Size &amp; quantity'}</span>${packs.length ? '' : '<a href="/size-guide" class="link small">Size guide</a>'}</div>
+      <div class="size-qty">${p.sizes.map(z => `<label class="sq"><span>${esc(z)}</span>${steps(`data-size="${esc(z)}"`, esc(z))}</label>`).join('')}</div>
+      ${packs.length ? '' : '<button type="button" class="link small" data-set-pack>+ Add 1 of every size (size set)</button>'}</div>` : ''}
+    <div class="pdp-total"><span data-pdp-count>0 pieces</span><strong data-pdp-total>₹0</strong></div>
+    <button class="btn btn-lg btn-block" data-add-pdp ${p.stock <= 0 ? 'disabled' : ''}>${p.stock <= 0 ? 'Sold out' : 'Add to bag'}</button>
+  </div>`;
+}
 
 function productCard(p, icon) {
   const tag = p.is_new ? 'New' : p.bestseller ? 'Bestseller' : '';
@@ -27,7 +53,7 @@ function productCard(p, icon) {
     </div>
     <div class="card-body">
       <a href="/p/${esc(p.slug)}" class="card-title">${esc(p.name)}</a>
-      <div class="card-meta">${esc(p.fit)} · ${p.colors.length} colour${p.colors.length > 1 ? 's' : ''}</div>
+      <div class="card-meta">${(() => { const k = packsOf(p); return k.length ? `Sets from ${k.reduce((a, b) => Math.min(a, b.pieces), 1e9)} pcs · ${p.colors.length} colour${p.colors.length > 1 ? 's' : ''}` : `${esc(p.fit)} · ${p.colors.length} colour${p.colors.length > 1 ? 's' : ''}`; })()}</div>
       <div class="price"><strong>${inr(p.price)}</strong><span class="per">/pc</span>${p.mrp > p.price ? `<s>${inr(p.mrp)}</s><em>${pct(p)}% off MRP</em>` : ''}</div>
       <div class="dots">${p.colors.slice(0, 5).map(c => `<i style="background:${esc(c.hex)}" title="${esc(c.name)}"></i>`).join('')}</div>
     </div>
@@ -149,23 +175,13 @@ function product(s, { p, cat, related, iconOf }) {
     <nav class="crumbs"><a href="/">Home</a> / <a href="/c/${esc(cat.slug)}">${esc(cat.name)}</a> / ${esc(p.name)}</nav>
     <div class="pdp-grid">
       <div class="gallery" data-gallery>${gallery.map((g, i) => `<div class="g-slide" data-i="${i}">${g}</div>`).join('')}</div>
-      <div class="pdp-info" data-product="${cardData(p, icon)}">
+      <div class="pdp-info">
         ${p.is_new ? '<span class="tag static">New drop</span>' : ''}${p.bestseller ? '<span class="tag static">Bestseller</span>' : ''}
         <h1 class="pdp-title">${esc(p.name)}</h1>
         <div class="price lg"><strong>${inr(p.price)}</strong><span class="per">/piece</span>${p.mrp > p.price ? `<s>MRP ${inr(p.mrp)}</s><em>${pct(p)}% margin room</em>` : ''}</div>
         <p class="tiny muted">Wholesale price, inclusive of GST. MOQ ${esc(s.moq)} pieces — mix with any other style.</p>
-
-        <div class="opt"><div class="opt-head"><span>Colour: <b data-color-name>${esc(p.colors[0]?.name || '')}</b></span></div>
-          <div class="swatches">${p.colors.map((c, i) => `<button type="button" class="sw ${i === 0 ? 'on' : ''}" data-color="${i}" style="--c:${esc(c.hex)}" aria-label="${esc(c.name)}"></button>`).join('')}</div></div>
-
-        <div class="opt"><div class="opt-head"><span>Size &amp; quantity</span><a href="/size-guide" class="link small">Size guide</a></div>
-          <div class="size-qty">${p.sizes.map(z => `<label class="sq"><span>${esc(z)}</span><div class="stepper"><button type="button" data-step="-1" aria-label="Less ${esc(z)}">−</button><input type="number" min="0" max="999" value="0" data-size="${esc(z)}" aria-label="Quantity ${esc(z)}"><button type="button" data-step="1" aria-label="More ${esc(z)}">+</button></div></label>`).join('')}</div>
-          <button type="button" class="link small" data-set-pack>+ Add 1 of every size (size set)</button>
-        </div>
-
-        <div class="pdp-total"><span data-pdp-count>0 pieces</span><strong data-pdp-total>₹0</strong></div>
+        ${picker(s, p, icon)}
         <div class="pdp-cta">
-          <button class="btn btn-lg btn-block" data-add-pdp ${p.stock <= 0 ? 'disabled' : ''}>${p.stock <= 0 ? 'Sold out' : 'Add to bag'}</button>
           <a class="btn btn-lg btn-ghost btn-block" href="${waLink(s, `Hi, I'm interested in ${p.name} (${process.env.SITE_URL || ''}/p/${p.slug})`)}" target="_blank" rel="noopener">${ICON.wa} Ask on WhatsApp</a>
         </div>
 
@@ -246,7 +262,7 @@ function orderBlock(s, o, { justPlaced = false, iconOf }) {
       ${o.status === 'cancelled' ? '<p class="pill red">Cancelled</p>' : o.status === 'pending_payment' ? '<p class="pill amber">Awaiting payment</p>' : `
       <ol class="track">${FLOW.map((st, i) => `<li class="${i <= idx ? 'on' : ''}"><i></i><span>${STATUS[st]}</span></li>`).join('')}</ol>`}
       ${o.tracking ? `<p class="small">Courier: <b>${esc(o.courier || '')}</b> · AWB <b>${esc(o.tracking)}</b></p>` : ''}
-      <div class="lines">${o.items.map(it => `<div class="line"><div class="line-img">${it.img ? `<img src="${esc(it.img)}" alt="">` : `<div class="ph" style="--bg:${esc(it.colorHex)}">${garmentArt(it.icon, it.colorHex)}</div>`}</div><div class="line-info"><b>${esc(it.name)}</b><span>${esc(it.color)} · ${esc(it.size)} · ${it.qty} pc</span></div><b>${inr(it.price * it.qty)}</b></div>`).join('')}</div>
+      <div class="lines">${o.items.map(it => `<div class="line"><div class="line-img">${it.img ? `<img src="${esc(it.img)}" alt="">` : `<div class="ph" style="--bg:${esc(it.colorHex)}">${garmentArt(it.icon, it.colorHex)}</div>`}</div><div class="line-info"><b>${esc(it.name)}</b><span>${it.sets ? `${esc(it.packName)} · ${esc(it.size.replace(/^Set: /, ''))} · ${esc(it.color)}<br>${it.sets} set${it.sets > 1 ? 's' : ''} × ${it.setPieces} pcs = ${it.qty} pcs` : `${esc(it.color)} · ${esc(it.size)} · ${it.qty} pc`}</span></div><b>${inr(it.price * it.qty)}</b></div>`).join('')}</div>
     </div>
     <aside class="summary">
       <h3>Payment</h3>
@@ -309,7 +325,7 @@ function invoice(s, o) {
     <div class="top" style="margin-top:20px"><div class="box"><b>Bill / Ship to</b><br>${esc(o.address.name)}${o.address.business ? '<br>' + esc(o.address.business) : ''}<br>${esc(o.address.line1)}${o.address.line2 ? ', ' + esc(o.address.line2) : ''}<br>${esc(o.address.city)}, ${esc(o.address.state)} – ${esc(o.address.pincode)}<br>Ph: ${esc(o.address.phone)}${o.gstin ? '<br>GSTIN: ' + esc(o.gstin) : ''}</div>
     <div class="box"><b>Payment</b><br>${o.payment_method === 'cod' ? `Cash on Delivery<br>Advance paid: ₹${n2(o.pay_now)}<br>Balance on delivery: ₹${n2(o.payment_status === 'paid' ? 0 : o.balance_due)}` : `Prepaid — ₹${n2(o.pay_now)}`}${o.rp_payment_id ? '<br>Ref: ' + esc(o.rp_payment_id) : ''}</div></div>
     <table><thead><tr><th>#</th><th>Item</th><th>HSN</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Taxable</th><th class="r">GST</th><th class="r">Amount</th></tr></thead><tbody>
-    ${t.rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}<br><span class="muted">${esc(r.color)} / ${esc(r.size)}</span></td><td>${esc(r.hsn || '6109')}</td><td class="r">${r.qty}</td><td class="r">${n2(r.price)}</td><td class="r">${n2(r.taxable)}</td><td class="r">${r.rate}%</td><td class="r">${n2(r.price * r.qty)}</td></tr>`).join('')}
+    ${t.rows.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}<br><span class="muted">${r.sets ? `${esc(r.packName)} — ${r.sets} set${r.sets > 1 ? 's' : ''} × ${r.setPieces} pcs<br>${esc(r.breakdown || '')}` : `${esc(r.color)} / ${esc(r.size)}`}</span></td><td>${esc(r.hsn || '6109')}</td><td class="r">${r.qty}</td><td class="r">${n2(r.price)}</td><td class="r">${n2(r.taxable)}</td><td class="r">${r.rate}%</td><td class="r">${n2(r.price * r.qty)}</td></tr>`).join('')}
     </tbody></table>
     <table class="tot" style="width:320px;margin-left:auto">
       <tr><td>Taxable value</td><td class="r">₹${n2(t.taxable)}</td></tr>
@@ -321,4 +337,4 @@ function invoice(s, o) {
   </div></body></html>`;
 }
 
-module.exports = { home, listing, product, cartPage, checkout, orderBlock, account, loginPage, track, invoice, STATUS };
+module.exports = { picker, home, listing, product, cartPage, checkout, orderBlock, account, loginPage, track, invoice, STATUS };

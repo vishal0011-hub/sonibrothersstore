@@ -1,16 +1,18 @@
 const { esc, inr, garmentIcon } = require('../lib');
 const { STATUS } = require('./store');
+const { getSettings } = require('../db');
+const { logoText } = require('./layout');
 
 const shell = (title, active, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} · Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/styles.css?v=1"><link rel="stylesheet" href="/static/admin.css?v=1"></head>
-<body class="admin"><aside class="aside"><a href="/admin" class="logo inv">SONY<span>ADMIN</span></a>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/styles.css?v=2"><link rel="stylesheet" href="/static/admin.css?v=2"></head>
+<body class="admin"><aside class="aside"><a href="/admin" class="logo inv">${logoText(getSettings(), 'ADMIN')}</a>
 <nav>${[['/admin', 'Dashboard'], ['/admin/orders', 'Orders'], ['/admin/products', 'Products'], ['/admin/categories', 'Categories'], ['/admin/customers', 'Customers'], ['/admin/messages', 'Messages'], ['/admin/settings', 'Settings']].map(([h, l]) => `<a href="${h}" class="${active === l ? 'on' : ''}">${l}</a>`).join('')}
 <a href="/" target="_blank">View store ↗</a><a href="/admin/logout">Log out</a></nav></aside>
 <main class="amain"><h1 class="display sm">${esc(title)}</h1>${body}</main>
-<div class="toast" role="status" hidden></div><script src="/static/admin.js?v=1" defer></script></body></html>`;
+<div class="toast" role="status" hidden></div><script src="/static/admin.js?v=2" defer></script></body></html>`;
 
-const login = (err) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin login</title><link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/styles.css?v=1"></head>
-<body><section class="wrap narrow page-head center" style="max-width:380px"><a class="logo">SONY<span>BROTHERS</span></a><h1 class="display sm" style="margin-top:2rem">Admin</h1>
+const login = (err) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Admin login</title><link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/styles.css?v=2"></head>
+<body><section class="wrap narrow page-head center" style="max-width:380px"><a class="logo">${logoText(getSettings())}</a><h1 class="display sm" style="margin-top:2rem">Admin</h1>
 <form method="post" action="/admin/login" class="stack"><label class="field"><span>Password</span><input type="password" name="password" required autofocus></label><button class="btn btn-block">Log in</button>${err ? `<p class="form-err">${esc(err)}</p>` : ''}</form></section></body></html>`;
 
 const date = d => new Date(d + 'Z').toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
@@ -47,8 +49,8 @@ function orderDetail(o, user, s) {
   <div class="agrid">
     <section class="acard">
       <h2 class="h2">Items (${o.pieces} pcs)</h2>
-      <div class="tbl"><table><thead><tr><th>Product</th><th>Colour</th><th>Size</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>
-      ${o.items.map(i => `<tr><td>${esc(i.name)}</td><td>${esc(i.color)}</td><td>${esc(i.size)}</td><td>${i.qty}</td><td>${inr(i.price)}</td><td>${inr(i.price * i.qty)}</td></tr>`).join('')}
+      <div class="tbl"><table><thead><tr><th>Product</th><th>Colour</th><th>Size / set</th><th>Pieces</th><th>Rate/pc</th><th>Amount</th></tr></thead><tbody>
+      ${o.items.map(i => `<tr><td>${esc(i.name)}${i.sets ? `<br><small><b>${esc(i.packName)}: ${i.sets} set${i.sets > 1 ? 's' : ''}</b> — pack ${esc(i.breakdown || '')}</small>` : ''}</td><td>${esc(i.color)}</td><td>${esc(i.size)}</td><td>${i.qty}</td><td>${inr(i.price)}</td><td>${inr(i.price * i.qty)}</td></tr>`).join('')}
       </tbody></table></div>
       <div class="sumline"><span>Subtotal</span><b>${inr(o.subtotal)}</b></div><div class="sumline"><span>Shipping</span><b>${inr(o.shipping)}</b></div><div class="sumline"><span>Total</span><b>${inr(o.total)}</b></div>
       <div class="sumline"><span>${o.payment_method === 'cod' ? 'COD advance' : 'Prepaid'}</span><b>${inr(o.pay_now)} ${payPill(o)}</b></div>
@@ -82,9 +84,29 @@ function products(list, cats) {
   </tbody></table></div>`);
 }
 
+// One editable set row (also used as the template for "+ Add a set")
+function packRow(k) {
+  const sizes = Object.entries(k.sizes || {}).map(([z, n]) => (n > 1 ? `${z}:${n}` : z)).join(', ');
+  const mode = k.colorMode || 'each';
+  return `<div class="pack-row" data-pack-row data-id="${esc(k.id || '')}">
+    <div class="pack-head"><b>Set</b><button type="button" data-rm-pack>Remove</button></div>
+    <div class="fgrid">
+      <label class="field"><span>Set name (shown to customer)</span><input data-k="name" value="${esc(k.name || '')}" placeholder="e.g. Size set, Full set, Colour box"></label>
+      <label class="field"><span>Sizes in one set</span><input data-k="sizes" value="${esc(sizes)}" placeholder="M, L, XL  or  M:2, L:2, XL:1"></label>
+      <label class="field"><span>Colours</span><select data-k="colorMode">
+        <option value="each" ${mode === 'each' ? 'selected' : ''}>Customer picks one colour</option>
+        <option value="all" ${mode === 'all' ? 'selected' : ''}>All colours in one set (assorted)</option>
+        <option value="list" ${mode === 'list' ? 'selected' : ''}>Only selected colours (assorted)</option></select></label>
+      <label class="field"><span>Price per piece in this set (optional)</span><input data-k="price" type="number" min="0" value="${esc(k.price || '')}" placeholder="Leave blank = product price"></label>
+    </div>
+    <div class="pack-colors" data-k="colors" data-selected="${esc((k.colors || []).join('|'))}" ${mode === 'list' ? '' : 'hidden'}></div>
+    <div class="pack-sum"></div>
+  </div>`;
+}
+
 function productForm(p, cats) {
   const isNew = !p;
-  p = p || { name: '', slug: '', category_id: cats[0]?.id, price: '', mrp: '', colors: [], sizes: ['S', 'M', 'L', 'XL', 'XXL'], images: [], stock: 500, featured: 0, is_new: 1, bestseller: 0, active: 1, description: '', fabric: '', fit: 'Regular' };
+  p = p || { name: '', slug: '', category_id: cats[0]?.id, price: '', mrp: '', colors: [], sizes: ['S', 'M', 'L', 'XL', 'XXL'], images: [], stock: 500, featured: 0, is_new: 1, bestseller: 0, active: 1, description: '', fabric: '', fit: 'Regular', packs: [], sell_single: 1 };
   const ALL = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '26', '28', '30', '32', '34', '36', '38', 'Free'];
   return shell(isNew ? 'Add product' : 'Edit product', 'Products', `
   <form class="agrid" data-api="/admin/api/products${isNew ? '' : '/' + p.id}" data-redirect="/admin/products">
@@ -102,6 +124,14 @@ function productForm(p, cats) {
       </div>
       <fieldset class="field"><span>Sizes</span><div class="checks">${ALL.map(z => `<label class="check"><input type="checkbox" name="sizes" value="${z}" ${p.sizes.includes(z) ? 'checked' : ''}>${z}</label>`).join('')}</div></fieldset>
       <label class="field"><span>Colours — one per line as <code>Name, #hex</code></span><textarea name="colors" rows="4" placeholder="Jet Black, #111111&#10;Off White, #F1EFEA">${esc(p.colors.map(c => `${c.name}, ${c.hex}`).join('\n'))}</textarea></label>
+
+      <h2 class="h2">Sets / packs</h2>
+      <p class="hint">Create any set you sell. Sizes: type <code>M, L, XL</code> for one of each, or <code>M:2, L:2, XL:1</code> for quantities. Price is worked out automatically (pieces × price per piece). Customers see each set with its price and choose how many sets they want.</p>
+      <div class="packs" data-packs>${p.packs.map(packRow).join('')}</div>
+      <button type="button" class="btn btn-ghost" data-add-pack>+ Add a set</button>
+      <label class="check"><input type="checkbox" name="sell_single" value="1" ${p.sell_single !== 0 ? 'checked' : ''}> Also allow buying single sizes (not only sets)</label>
+      <input type="hidden" name="packs" value="">
+      <template id="pack-tpl">${packRow({})}</template>
     </section>
     <section class="acard stack">
       <h2 class="h2">Photos</h2>

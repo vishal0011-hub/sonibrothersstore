@@ -19,6 +19,14 @@ const ICON = {
   shield: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
 };
 
+// Logo comes from Admin → Settings → Brand name: first word plain, the rest highlighted (e.g. SONI [BROTHERS])
+function logoText(s, rest) {
+  const words = String(s.brand_name || 'Store').trim().toUpperCase().split(/\s+/);
+  const first = words.shift();
+  return `${esc(first)}<span>${esc(rest || words.join(' ') || 'STORE')}</span>`;
+}
+const greeting = s => `Hi ${s.brand_name}, I want to place a wholesale order.`;
+
 const waLink = (s, text = '') => `https://wa.me/${esc(String(s.whatsapp || '').replace(/\D/g, ''))}${text ? '?text=' + encodeURIComponent(text) : ''}`;
 
 function layout(s, { title, desc, body, user, cats = [], canonical = '', ogImage = '', jsonld = null, page = '', noindex = false }) {
@@ -46,7 +54,7 @@ ${canonical ? `<link rel="canonical" href="${esc(base + canonical)}">` : ''}
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/styles.css?v=1">
+<link rel="stylesheet" href="/static/styles.css?v=2">
 ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(/</g, '\\u003c')}</script>` : ''}
 </head>
 <body data-page="${esc(page)}" data-moq="${esc(s.moq)}" data-logged="${user ? 1 : 0}">
@@ -55,7 +63,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 <header class="hdr">
   <div class="wrap hdr-in">
     <button class="icon-btn only-m" data-open="menu" aria-label="Menu">${ICON.menu}</button>
-    <a href="/" class="logo" aria-label="${brand} home">SONY<span>BROTHERS</span></a>
+    <a href="/" class="logo" aria-label="${brand} home">${logoText(s)}</a>
     <nav class="nav only-d" aria-label="Main">
       <a href="/shop">Shop all</a>
       ${cats.slice(0, 6).map(c => `<a href="/c/${esc(c.slug)}">${esc(c.name)}</a>`).join('')}
@@ -76,7 +84,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 </div>
 
 <aside class="menu" id="menu" hidden aria-label="Menu">
-  <div class="menu-head"><span class="logo">SONY<span>BROTHERS</span></span><button class="icon-btn" data-close aria-label="Close">${ICON.close}</button></div>
+  <div class="menu-head"><span class="logo">${logoText(s)}</span><button class="icon-btn" data-close aria-label="Close">${ICON.close}</button></div>
   <a href="/shop" class="menu-big">Shop all ${ICON.arrow}</a>
   ${cats.map(c => `<a href="/c/${esc(c.slug)}" class="menu-cat">${garmentIcon(c.icon, 28)}<span>${esc(c.name)}</span></a>`).join('')}
   <div class="menu-links"><a href="/account">My account</a><a href="/track">Track order</a><a href="/size-guide">Size guide</a><a href="/contact">Contact</a></div>
@@ -90,7 +98,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
     <div class="social-btns">
       <a class="sbtn ig" href="${esc(s.instagram)}" target="_blank" rel="noopener">${ICON.ig}<span>Instagram</span></a>
       <a class="sbtn yt" href="${esc(s.youtube)}" target="_blank" rel="noopener">${ICON.yt}<span>YouTube</span></a>
-      <a class="sbtn wa" href="${waLink(s, 'Hi Sony Brothers, I want to place a wholesale order.')}" target="_blank" rel="noopener">${ICON.wa}<span>WhatsApp</span></a>
+      <a class="sbtn wa" href="${waLink(s, greeting(s))}" target="_blank" rel="noopener">${ICON.wa}<span>WhatsApp</span></a>
     </div>
   </div>
 </section>
@@ -98,7 +106,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 <footer class="ftr">
   <div class="wrap ftr-grid">
     <div class="ftr-brand">
-      <a href="/" class="logo inv">SONY<span>BROTHERS</span></a>
+      <a href="/" class="logo inv">${logoText(s)}</a>
       <p>${esc(s.tagline)}</p>
       <p class="small">${esc(s.legal_name)}<br>${esc(s.address)}, ${esc(s.city)}, ${esc(s.state)} ${esc(s.pincode)}${s.gstin ? `<br>GSTIN: ${esc(s.gstin)}` : ''}</p>
       <p class="small"><a href="tel:${esc(s.phone.replace(/\s/g, ''))}">${esc(s.phone)}</a> · <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></p>
@@ -121,7 +129,7 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
   <button data-open="cart" class="cart-btn">${ICON.bag}<span>Cart</span><b class="cart-count" hidden>0</b></button>
 </nav>
 
-<a class="wa-float" href="${waLink(s, 'Hi Sony Brothers, I want to place a wholesale order.')}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">${ICON.wa}</a>
+<a class="wa-float" href="${waLink(s, greeting(s))}" target="_blank" rel="noopener" aria-label="Chat on WhatsApp">${ICON.wa}</a>
 
 <div class="scrim" hidden></div>
 <aside class="drawer" id="cart" hidden aria-label="Cart">
@@ -159,8 +167,8 @@ ${jsonld ? `<script type="application/ld+json">${JSON.stringify(jsonld).replace(
 </div>
 
 <div class="toast" role="status" aria-live="polite" hidden></div>
-<script src="/static/app.js?v=1" defer></script>
+<script src="/static/app.js?v=2" defer></script>
 </body></html>`;
 }
 
-module.exports = { layout, ICON, waLink };
+module.exports = { layout, ICON, waLink, logoText };
